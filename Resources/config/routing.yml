@@ -1,0 +1,3 @@
+euzeo_fixtures_homepage:
+    pattern:  /hello/{name}
+    defaults: { _controller: EuzeoFixturesBundle:Default:index }

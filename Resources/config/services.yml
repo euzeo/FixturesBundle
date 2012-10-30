@@ -1,0 +1,7 @@
+parameters:
+#    euzeo_fixtures.example.class: Euzeo\FixturesBundle\Example
+
+services:
+#    euzeo_fixtures.example:
+#        class: %euzeo_fixtures.example.class%
+#        arguments: [@service_id, "plain_value", %parameter%]
