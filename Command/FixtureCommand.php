@@ -71,12 +71,14 @@ class FixtureCommand extends ContainerAwareCommand
 	protected function loadFixtureFrom($file)
 	{
 		$this->fixtures  = Yaml::parse(file_get_contents($file));
+
+		$this->getFreshAndCleanDatabase();
 		
 		// loop though each different entity type 
 		foreach ($this->fixtures as $model => $data)
 		{
 			$repos = $this->em->getRepository($this->bundle.':'.$model);
-
+			
 			$className = $repos->getClassName();
 			
 			// initialize the array for the current model
@@ -103,16 +105,20 @@ class FixtureCommand extends ContainerAwareCommand
 					$entity->$function($fieldValue);
 				}
 
-				//$this->em->persist($entity);
+				if ($this->isDebug) {
+					//var_dump($entity);
+				}
+
+				$this->em->persist($entity);
 
 				$this->entities[$model][$objectName] = $entity;
 			}
 			
-			//$this->em->flush();
+			$this->em->flush();
 		}
 
 		if ($this->isDebug) {
-			var_dump($entities);
+			//var_dump($this->entities);
 		}
 	}
 
@@ -121,5 +127,21 @@ class FixtureCommand extends ContainerAwareCommand
 		// TODO: reflect the field inside the entity to know the exact type
 
 		return array_key_exists($fieldName, $this->fixtures);
+	}
+
+	protected function getFreshAndCleanDatabase()
+	{
+		$tool = new \Doctrine\ORM\Tools\SchemaTool($this->em);
+
+		$classes = array();
+		foreach ($this->fixtures as $model => $data)
+		{
+			$repos = $this->em->getRepository($this->bundle.':'.$model);
+
+			$classes[] = $this->em->getClassMetadata($repos->getClassName());
+		}
+
+		$tool->dropSchema($classes);
+		$tool->createSchema($classes);
 	}
 }
