@@ -13,9 +13,19 @@ use Symfony\Component\Yaml\Yaml;
 class FixtureCommand extends ContainerAwareCommand
 {
 	/**
-	 * EntityManager
+	 * @var EntityManager
 	 */
 	protected $em;
+	
+	/**
+	 * @var array In this array we'll store all entity objects
+	 */
+	protected $entities;
+	
+	/**
+	 * @var string
+	 */
+	protected $bundle;
 
     protected function configure()
     {
@@ -29,25 +39,25 @@ class FixtureCommand extends ContainerAwareCommand
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+    	// init
         $this->bundle = $input->getArgument('bundle');
-
-        $this->em = $this->getContainer()->get('doctrine')->getEntityManager('default');
+        $this->em = $this->getContainer()->get('doctrine')->getEntityManager('default');        
+        $this->entities = array();
+        $this->isDebug = TRUE === $input->getOption('debug');
+        
 
         $kernel = $this->getContainer()->get('kernel');
-		$path = $kernel->locateResource('@'.$this->bundle.'/Data/fixtures/');
-
-		$this->isDebug = TRUE === $input->getOption('debug');
+		$path = $kernel->locateResource('@'.$this->bundle.'/Data/fixtures/');		
 
 		if ($this->isDebug) {
 			$output->writeln('Reading yml files from folder '.$path);
 		}
 
-        if ($handle = opendir($path))
-        {
+        if ($handle = opendir($path)) {
+        	// loop through each files in the fixtures folder
 		    while (false !== ($entry = readdir($handle)))
 		    {
-		        if ( substr($entry, -4) === '.yml' )
-		        {
+		        if ( substr($entry, -4) === '.yml' ) {
 		        	if ($this->isDebug) $output->writeln('Found '.$entry);
 
 		        	$this->loadFixtureFrom($path.$entry);
@@ -61,45 +71,44 @@ class FixtureCommand extends ContainerAwareCommand
     protected function loadFixtureFrom($file)
     {
     	$this->fixtures  = Yaml::parse(file_get_contents($file));
-
-    	// in this array we'll store all entity object
-    	$entities = array();
 		
+		// loop though each different entity type 
     	foreach ($this->fixtures as $model => $data)
     	{
     		$repos = $this->em->getRepository($this->bundle.':'.$model);
 
     		$className = $repos->getClassName();
-    		$entity = new $className;
+			
+			// initialize the array for the current model
+    		$this->entities[$model] = array();
 
-    		$entities[$model] = array();
-
+			// loop through each entity object 
     		foreach ($data as $objectName => $field) 
     		{
+    			// create the entity object
     			$entity = new $className;
 
+				// loop through each entity field
     			foreach ($field as $fieldName => $fieldValue)
     			{
-    				$fieldName = ucwords($fieldName);
-					$function = 'set'.$fieldName;
+    				// format $fieldName to match the property inside the Entity
+    				$fieldName = ucwords($fieldName);				
 
-    				if ($this->isComplexType($fieldName))
-    				{
+    				if ($this->isComplexType($fieldName)) {
     					// we need to fetch the object first
-    					$complexObject = $entities[$fieldName][$fieldValue];
-
-    					$entity->$function($complexObject);
+    					$fieldValue = $this->entities[$fieldName][$fieldValue];    					
     				}
-    				else {
-    					$entity->$function($fieldValue);
-    				}
+    				
+    				$function = 'set'.$fieldName;
+    				$entity->$function($fieldValue);
     			}
 
     			//$this->em->persist($entity);
-				//$this->em->flush();
 
-				$entities[$model][$objectName] = $entity;
+				$this->entities[$model][$objectName] = $entity;
     		}
+    		
+    		//$this->em->flush();
     	}
 
     	if ($this->isDebug) {
