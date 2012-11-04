@@ -36,11 +36,18 @@ class FixtureCommand extends ContainerAwareCommand
 			while (false !== ($file = readdir($handle)))
 			{
 				if ('.yml' === substr($file, -4)) {
-					$fixtures  = array_merge(Yaml::parse(file_get_contents($path.'/'.$file)), $fixtures);
+					$files[] = $file;
 				}
 			}
-
 			closedir($handle);
+
+			sort($files);
+
+			for ($i=0; $i < count($files); $i++)
+			{
+				$fixtures  = array_merge($fixtures, Yaml::parse(file_get_contents($path.'/'.$files[$i])));
+			}
+
 
 			if (count($fixtures) > 0) {
 				$em = $this->getContainer()->get('doctrine')->getEntityManager('default');
