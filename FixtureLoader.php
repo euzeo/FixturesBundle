@@ -48,6 +48,7 @@ class FixtureLoader
 	 */
 	public function load()
 	{
+		//var_dump($this->fixtures);
 		// loop though each different entity type
 		foreach ($this->fixtures as $model => $data)
 		{
@@ -58,8 +59,10 @@ class FixtureLoader
 			// build dictionary for the current Entity model (column name, type)
 			$fields = $this->getTableFields($className);
 
+			$associations = $this->getTableAssociations($className);
+
 			// initialize the array for the current model
-			$this->entities[$model] = array();
+			$this->entities[$className] = array();
 
 			// loop through each entity object
 			foreach ($data as $objectName => $field)
@@ -81,12 +84,15 @@ class FixtureLoader
 							$fieldValue = new \DateTime($fieldValue);
 						}
 					}
-					elseif ($this->isComplexType($fieldName)) {
-						$fieldValue = $this->entities[$fieldName][$fieldValue];
+					elseif (array_key_exists(strtolower($fieldName), $associations)) {
+						// complex type
+						$fieldType = $associations[strtolower($fieldName)]['type'];
+						$fieldValue = $this->entities[$fieldType][$fieldValue];
 					}
 					else {
 						// type not found -> error
-						throw new \Exception('Field '.$fieldName.' not found in dictionary');
+
+						throw new \Exception('Type "'.$fieldName.'" not found in dictionary');
 					}
 
 					$function = 'set'.$fieldName;
@@ -95,7 +101,7 @@ class FixtureLoader
 
 				$this->em->persist($entity);
 
-				$this->entities[$model][$objectName] = $entity;
+				$this->entities[$className][$objectName] = $entity;
 			}
 
 			$this->em->flush();
@@ -118,9 +124,20 @@ class FixtureLoader
 		return $fields;
 	}
 
-	protected function isComplexType($fieldName)
+	protected function getTableAssociations($className)
 	{
-		return array_key_exists($fieldName, $this->fixtures);
+		$meta = $this->em->getClassMetadata($className);
+		$associationNames = $meta->getAssociationNames();
+
+		$fields = array();
+		foreach ($associationNames as $associationName) {
+			$fields[strtolower($associationName)] = array(
+				'type' => $meta->getAssociationTargetClass($associationName),
+				'name' => $associationName
+			);
+		}
+
+		return $fields;
 	}
 
 	/**
