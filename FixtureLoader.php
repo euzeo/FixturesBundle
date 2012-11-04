@@ -28,6 +28,11 @@ class FixtureLoader
 	protected $entities;
 
 	/**
+	 * @var array
+	 */
+	protected $dictionary;
+
+	/**
 	 * [__construct description]
 	 *
 	 * @param array                       $fixtures [description]
@@ -48,7 +53,8 @@ class FixtureLoader
 	 */
 	public function load()
 	{
-		//var_dump($this->fixtures);
+		$this->dictionary = $this->buildDictionnary();
+
 		// loop though each different entity type
 		foreach ($this->fixtures as $model => $data)
 		{
@@ -56,64 +62,111 @@ class FixtureLoader
 
 			$className = $repos->getClassName();
 
-			// build dictionary for the current Entity model (column name, type)
-			$fields = $this->getTableFields($className);
-
-			$associations = $this->getTableAssociations($className);
-
 			// initialize the array for the current model
 			$this->entities[$className] = array();
 
 			// loop through each entity object
 			foreach ($data as $objectName => $field)
 			{
-				// create the entity object
-				$entity = new $className;
+				$object = $this->buildObject($className, $field);
 
-				// loop through each entity field
-				foreach ($field as $fieldName => $fieldValue)
-				{
-					// format $fieldName to match the property inside the Entity
-					$fieldName = ucwords($fieldName);
-
-					if (array_key_exists(strtolower($fieldName), $fields)) {
-						// check for the field type into the dictionary
-						$fieldType = $fields[strtolower($fieldName)]['type'];
-
-						if (self::TYPE_DATETIME === $fieldType) {
-							$fieldValue = new \DateTime($fieldValue);
-						}
-					}
-					elseif (array_key_exists(strtolower($fieldName), $associations)) {
-						// complex type
-						$fieldType = $associations[strtolower($fieldName)]['type'];
-						$fieldValue = $this->entities[$fieldType][$fieldValue];
-					}
-					else {
-						// type not found -> error
-
-						throw new \Exception('Type "'.$fieldName.'" not found in dictionary');
-					}
-
-					$function = 'set'.$fieldName;
-					$entity->$function($fieldValue);
-				}
-
-				$this->em->persist($entity);
-
-				$this->entities[$className][$objectName] = $entity;
+				// save the entitie in array for future reference
+				$this->entities[$className][$objectName] = $object;
 			}
-
-			$this->em->flush();
 		}
 	}
 
-	protected function getTableFields($className)
+	protected function buildObject($className, $fields)
 	{
-		$meta = $this->em->getClassMetadata($className);
+		$object = new $className;
+
+		// loop through each entity field
+		foreach ($fields as $name => $value)
+		{
+			// looking for the field $name into the dictionay entry for the current $className
+			if (array_key_exists(strtolower($name), $this->dictionary[$className]['fields'])) {
+
+				$type = $this->dictionary[$className]['fields'][strtolower($name)]['type'];
+
+				if (self::TYPE_DATETIME === $type) {
+					$value = new \DateTime($value);
+				}
+
+				// create the function name (ex: validUntil --> setValidUntil)
+				$function = 'set'.ucwords($name);
+				$object->$function($value);
+			}
+			// looking for the assoction $name into the dictionay entry for the current $className
+			elseif (array_key_exists(strtolower($name), $this->dictionary[$className]['associations'])) {
+				$type = $this->dictionary[$className]['associations'][strtolower($name)]['type'];
+
+				if (is_array($value)) {
+					// create the function name (ex: Children --> addChildren)
+					$function = 'add'.ucwords($name);
+
+					foreach ($value as $row)
+					{
+						// if the row is an array it means that we are facing a sub-object declaration
+						if (is_array($row)) {
+							// create the object
+							$subOject = $this->buildObject($type, $row);
+						}
+						// otherwise the $row is a reference to an existing object
+						else {
+							// get the object reference
+							$subOject = $this->entities[$type][$row];
+						}
+
+						$object->$function($subOject);
+					}
+				}
+				else {
+					// get the object reference
+					$value = $this->entities[$type][$value];
+
+					// create the function name (ex: parent --> setParent)
+					$function = 'set'.ucwords($name);
+					$object->$function($value);
+				}
+			}
+			else {
+				// type not found -> error
+				throw new \Exception('Entity '.$className.' doesn\'t have a field named '.$name);
+			}
+		}
+
+		$this->em->persist($object);
+		$this->em->flush();
+
+		return $object;
+	}
+
+	protected function buildDictionnary()
+	{
+		$dictionary = array();
+
+		foreach (array_keys($this->fixtures) as $model)
+		{
+			$repos = $this->em->getRepository($this->bundle.':'.$model);
+
+			$className = $repos->getClassName();
+
+			$meta = $this->em->getClassMetadata($className);
+
+			$dictionary[$className] = array(
+				'fields'       => self::getTableFields($meta, $className),
+				'associations' => self::getTableAssociations($meta, $className)
+			);
+		}
+
+		return $dictionary;
+	}
+
+	static protected function getTableFields($meta, $className)
+	{
+		$fields = array();
 		$fieldNames = $meta->getFieldNames();
 
-		$fields = array();
 		foreach ($fieldNames as $fieldName) {
 			$fields[strtolower($fieldName)] = array(
 				'type' => $meta->getTypeOfField($fieldName),
@@ -124,20 +177,19 @@ class FixtureLoader
 		return $fields;
 	}
 
-	protected function getTableAssociations($className)
+	static protected function getTableAssociations($meta, $className)
 	{
-		$meta = $this->em->getClassMetadata($className);
+		$associations = array();
 		$associationNames = $meta->getAssociationNames();
 
-		$fields = array();
 		foreach ($associationNames as $associationName) {
-			$fields[strtolower($associationName)] = array(
+			$associations[strtolower($associationName)] = array(
 				'type' => $meta->getAssociationTargetClass($associationName),
 				'name' => $associationName
 			);
 		}
 
-		return $fields;
+		return $associations;
 	}
 
 	/**
